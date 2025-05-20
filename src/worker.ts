@@ -748,7 +748,7 @@ export default {
           // Format response according to JSON-RPC format with the request ID
           const response = {
             jsonrpc: "2.0",
-            id: requestBody.id || callToolRequest.id || 0,
+            id: requestBody.id !== undefined ? requestBody.id : 0,
             result: result
           };
           
