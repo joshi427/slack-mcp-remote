@@ -6,12 +6,8 @@
     "SLACK_CHANNEL_IDS": "C07UXGW4QSU",
     "SLACK_TEAM_ID": "T07V0HM8KKJ"
   },
-  "secret_vars": [
-    "SLACK_BOT_TOKEN"
-  ],
   "observability": {
-    "logs": {
-      "enabled": false
-    }
+    "enabled": true,
+    "head_sampling_rate": 1
   }
 }

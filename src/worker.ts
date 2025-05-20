@@ -374,15 +374,34 @@ export default {
     // Initialize the Slack client with the bot token from environment variables
     const botToken = env.SLACK_BOT_TOKEN;
     const teamId = env.SLACK_TEAM_ID;
+    const channelIds = env.SLACK_CHANNEL_IDS;
+    
+    console.log('Environment variables check:', { 
+      hasToken: !!botToken, 
+      hasTeamId: !!teamId,
+      hasChannelIds: !!channelIds,
+      envKeys: Object.keys(env)
+    });
 
     if (!botToken || !teamId) {
       return new Response(
         JSON.stringify({
-          error: "Missing required environment variables: SLACK_BOT_TOKEN and SLACK_TEAM_ID"
+          error: "Missing required environment variables: SLACK_BOT_TOKEN and SLACK_TEAM_ID",
+          debug: {
+            hasToken: !!botToken,
+            hasTeamId: !!teamId,
+            hasChannelIds: !!channelIds,
+            envKeys: Object.keys(env)
+          }
         }),
         {
           status: 500,
-          headers: { "Content-Type": "application/json" }
+          headers: { 
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type"
+          }
         }
       );
     }
@@ -562,18 +581,41 @@ export default {
     // Create a custom handler for Cloudflare Workers
     // Parse the incoming request
     try {
-      const requestBody = await request.json();
+      const requestText = await request.text();
+      let requestBody;
       
-      // Handle MCP requests
-      if (requestBody.type === 'call_tool' && requestBody.params) {
+      try {
+        requestBody = JSON.parse(requestText);
+      } catch (e) {
+        console.error('Failed to parse request JSON:', e, 'Raw request:', requestText);
+        return new Response(JSON.stringify({ error: 'Invalid JSON in request' }), {
+          status: 400,
+          headers: { 
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type'
+          }
+        });
+      }
+      
+      console.log('Received request:', JSON.stringify(requestBody));
+      
+      // Handle MCP requests - support both direct method calls and type-based format
+      const isCallTool = requestBody.type === 'call_tool' || requestBody.method === 'tools/call';
+      const isListTools = requestBody.type === 'list_tools' || requestBody.method === 'tools/list' || requestBody.method === 'list';
+      const isInitialize = requestBody.method === 'initialize';
+      const isNotification = requestBody.method && requestBody.method.startsWith('notifications/');
+      
+      if (isCallTool) {
         // Process the call_tool request manually
         // Create a properly formatted request object that matches CallToolRequest
         const callToolRequest = {
           method: 'tools/call',
           params: {
-            name: requestBody.params.name,
-            arguments: requestBody.params.arguments || {},
-            _meta: requestBody.params._meta
+            name: (requestBody.params?.name || requestBody.params?.tool || ''),
+            arguments: (requestBody.params?.arguments || requestBody.params?.parameters || {}),
+            _meta: requestBody.params?._meta
           }
         } as CallToolRequest;
         
@@ -703,8 +745,20 @@ export default {
               throw new Error(`Unknown tool: ${callToolRequest.params.name}`);
           }
           
-          return new Response(JSON.stringify(result), {
-            headers: { 'Content-Type': 'application/json' }
+          // Format response according to JSON-RPC format with the request ID
+          const response = {
+            jsonrpc: "2.0",
+            id: requestBody.id || callToolRequest.id || 0,
+            result: result
+          };
+          
+          return new Response(JSON.stringify(response), {
+            headers: { 
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type'
+            }
           });
         } catch (error) {
           return new Response(JSON.stringify({
@@ -715,38 +769,122 @@ export default {
               }),
             }],
           }), {
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type'
+            }
           });
         }
-      } else if (requestBody.type === 'list_tools') {
+      } else if (isListTools) {
         // Return the list of tools directly
-        const toolsList = {
-          tools: [
-            listChannelsTool,
-            postMessageTool,
-            replyToThreadTool,
-            addReactionTool,
-            getChannelHistoryTool,
-            getThreadRepliesTool,
-            getUsersTool,
-            getUserProfileTool,
-          ],
+        console.log('Handling tools/list request:', JSON.stringify(requestBody));
+        
+        const tools = [
+          listChannelsTool,
+          postMessageTool,
+          replyToThreadTool,
+          addReactionTool,
+          getChannelHistoryTool,
+          getThreadRepliesTool,
+          getUsersTool,
+          getUserProfileTool,
+        ];
+        
+        // Format response according to JSON-RPC format with the request ID
+        const response = {
+          jsonrpc: "2.0",
+          id: requestBody.id || 0,
+          result: {
+            tools: tools
+          }
         };
         
-        return new Response(JSON.stringify(toolsList), {
-          headers: { 'Content-Type': 'application/json' }
+        return new Response(JSON.stringify(response), {
+          headers: { 
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type'
+          }
+        });
+      } else if (isInitialize) {
+        // Handle initialize method for MCP protocol
+        console.log('Handling initialize request:', JSON.stringify(requestBody));
+        
+        // Respond with server capabilities
+        const response = {
+          jsonrpc: "2.0",
+          id: requestBody.id,
+          result: {
+            protocolVersion: "2024-11-05",
+            serverInfo: {
+              name: "slack-mcp-remote",
+              version: "1.0.0"
+            },
+            capabilities: {
+              tools: {}
+            }
+          }
+        };
+        
+        return new Response(JSON.stringify(response), {
+          headers: { 
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type'
+          }
+        });
+      } else if (isNotification) {
+        // Handle notification methods (like notifications/initialized)
+        console.log('Handling notification:', requestBody.method, JSON.stringify(requestBody));
+        
+        // For notifications, we just need to acknowledge receipt
+        // Notifications don't require a response with an ID as they don't expect a response
+        return new Response(JSON.stringify({ jsonrpc: "2.0", result: null }), {
+          headers: { 
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type'
+          }
+        });
+      } else if (request.method === 'OPTIONS') {
+        // Handle CORS preflight requests
+        return new Response(null, {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Max-Age': '86400',
+          }
         });
       }
       
+      // Log the unhandled request for debugging
+      console.error('Unhandled request type:', requestBody);
+      
       // If we get here, either the request type is unsupported or we couldn't find a handler
-      return new Response(JSON.stringify({ error: 'Unsupported request type or missing handler' }), {
+      return new Response(JSON.stringify({ error: 'Unsupported request type or missing handler', received: requestBody }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type'
+        }
       });
     } catch (error) {
       return new Response(JSON.stringify({ error: 'Invalid request format' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type'
+        }
       });
     }
   },
