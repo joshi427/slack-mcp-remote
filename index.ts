@@ -8,6 +8,33 @@ import {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 
+// Node.js doesn't have fetch by default, so we need to ensure it's available
+import { fetch, Response, Request, Headers } from "undici";
+import { URLSearchParams } from "url";
+
+// Define Slack API response types
+interface SlackApiResponse {
+  ok: boolean;
+  error?: string;
+}
+
+interface SlackChannelResponse extends SlackApiResponse {
+  channel?: {
+    is_archived: boolean;
+    [key: string]: any;
+  };
+}
+
+interface SlackChannelsResponse extends SlackApiResponse {
+  channels: any[];
+  response_metadata: { next_cursor: string };
+}
+
+interface SlackMessageResponse extends SlackApiResponse {
+  ts?: string;
+  channel?: string;
+}
+
 // Type definitions for tool arguments
 interface ListChannelsArgs {
   limit?: number;
@@ -239,7 +266,8 @@ class SlackClient {
         { headers: this.botHeaders },
       );
   
-      return response.json();
+      const data = await response.json();
+      return data as SlackChannelsResponse;
     }
 
     const predefinedChannelIdsArray = predefinedChannelIds.split(",").map((id: string) => id.trim());
@@ -254,7 +282,7 @@ class SlackClient {
         `https://slack.com/api/conversations.info?${params}`,
         { headers: this.botHeaders }
       );
-      const data = await response.json();
+      const data = await response.json() as { ok: boolean; channel?: { is_archived: boolean; [key: string]: any } };
 
       if (data.ok && data.channel && !data.channel.is_archived) {
         channels.push(data.channel);
