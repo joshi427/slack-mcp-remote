@@ -201,14 +201,14 @@ class SlackClient {
     };
   }
 
-  async getChannels(limit: number = 100, cursor?: string): Promise<any> {
-    const predefinedChannelIds = process.env.SLACK_CHANNEL_IDS;
+  async getChannels(limit: number = 100, cursor?: string, env?: any): Promise<any> {
+    const predefinedChannelIds = env?.SLACK_CHANNEL_IDS;
     if (!predefinedChannelIds) {
       const params = new URLSearchParams({
         types: "public_channel",
         exclude_archived: "true",
         limit: Math.min(limit, 200).toString(),
-        team_id: process.env.SLACK_TEAM_ID!,
+        team_id: env?.SLACK_TEAM_ID || '',
       });
   
       if (cursor) {
@@ -375,10 +375,6 @@ export default {
     const botToken = env.SLACK_BOT_TOKEN;
     const teamId = env.SLACK_TEAM_ID;
 
-    // Set environment variables for the SlackClient
-    process.env = process.env || {};
-    process.env.SLACK_TEAM_ID = teamId;
-
     if (!botToken || !teamId) {
       return new Response(
         JSON.stringify({
@@ -419,7 +415,8 @@ export default {
               const args = request.params.arguments as any;
               const response = await slackClient.getChannels(
                 args.limit,
-                args.cursor
+                args.cursor,
+                env
               );
               return {
                 content: [{ type: "text", text: JSON.stringify(response) }],
