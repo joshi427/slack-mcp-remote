@@ -371,6 +371,19 @@ class SlackClient {
 
 export default {
   async fetch(request: Request, env: any, ctx: any) {
+    const url = new URL(request.url);
+    if (url.pathname === "/favicon.ico") {
+      // Return a 204 No Content for favicon requests to prevent errors
+      return new Response(null, { 
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*', // Match CORS policy of other routes
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type'
+        }
+      });
+    }
+
     // Initialize the Slack client with the bot token from environment variables
     const botToken = env.SLACK_BOT_TOKEN;
     const teamId = env.SLACK_TEAM_ID;
