@@ -1,4 +1,11 @@
 // Cloudflare Worker for Slack MCP Server
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import {
+  CallToolRequest,
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 
 // Define Slack API response types
 interface SlackApiResponse {
@@ -383,8 +390,6 @@ export default {
         }
       );
     }
-
-    // Set up the MCP server with HTTP transport
     const server = new Server(
       {
         name: "Slack MCP Server",
@@ -394,15 +399,15 @@ export default {
         capabilities: {
           tools: {},
         },
-      }
+      },
     );
 
-    const slackClient = new SlackClient(botToken);
+    const slackClient = new SlackClient(env.SLACK_BOT_TOKEN);
 
-    // Register the tool handlers
+    // Set up the request handlers
     server.setRequestHandler(
       CallToolRequestSchema,
-      async (request: CallToolRequest) => {
+      async (request) => {
         try {
           if (!request.params.arguments) {
             throw new Error("No arguments provided");
@@ -560,27 +565,180 @@ export default {
     // Create a custom handler for Cloudflare Workers
     // Parse the incoming request
     try {
-      const requestBody = await request.json() as { type: string; params?: any };
+      const requestBody = await request.json();
       
       // Handle MCP requests
       if (requestBody.type === 'call_tool' && requestBody.params) {
         // Process the call_tool request manually
-        const handler = server.getRequestHandler(CallToolRequestSchema);
-        if (handler) {
-          const result = await handler(requestBody as CallToolRequest);
+        // Create a properly formatted request object that matches CallToolRequest
+        const callToolRequest = {
+          method: 'tools/call',
+          params: {
+            name: requestBody.params.name,
+            arguments: requestBody.params.arguments || {},
+            _meta: requestBody.params._meta
+          }
+        } as CallToolRequest;
+        
+        // Call the tool handler directly
+        try {
+          if (!callToolRequest.params.arguments) {
+            throw new Error("No arguments provided");
+          }
+
+          // Handle tool calls based on the tool name
+          let result;
+          switch (callToolRequest.params.name) {
+            case "slack_list_channels": {
+              const args = callToolRequest.params.arguments as any;
+              const response = await slackClient.getChannels(
+                args.limit,
+                args.cursor
+              );
+              result = {
+                content: [{ type: "text", text: JSON.stringify(response) }],
+              };
+              break;
+            }
+            case "slack_post_message": {
+              const args = callToolRequest.params.arguments as any;
+              if (!args.channel_id || !args.text) {
+                throw new Error(
+                  "Missing required arguments: channel_id and text"
+                );
+              }
+              const response = await slackClient.postMessage(
+                args.channel_id,
+                args.text
+              );
+              result = {
+                content: [{ type: "text", text: JSON.stringify(response) }],
+              };
+              break;
+            }
+            case "slack_reply_to_thread": {
+              const args = callToolRequest.params.arguments as any;
+              if (!args.channel_id || !args.thread_ts || !args.text) {
+                throw new Error(
+                  "Missing required arguments: channel_id, thread_ts, and text"
+                );
+              }
+              const response = await slackClient.postReply(
+                args.channel_id,
+                args.thread_ts,
+                args.text
+              );
+              result = {
+                content: [{ type: "text", text: JSON.stringify(response) }],
+              };
+              break;
+            }
+            case "slack_add_reaction": {
+              const args = callToolRequest.params.arguments as any;
+              if (!args.channel_id || !args.timestamp || !args.reaction) {
+                throw new Error(
+                  "Missing required arguments: channel_id, timestamp, and reaction"
+                );
+              }
+              const response = await slackClient.addReaction(
+                args.channel_id,
+                args.timestamp,
+                args.reaction
+              );
+              result = {
+                content: [{ type: "text", text: JSON.stringify(response) }],
+              };
+              break;
+            }
+            case "slack_get_channel_history": {
+              const args = callToolRequest.params.arguments as any;
+              if (!args.channel_id) {
+                throw new Error("Missing required argument: channel_id");
+              }
+              const response = await slackClient.getChannelHistory(
+                args.channel_id,
+                args.limit
+              );
+              result = {
+                content: [{ type: "text", text: JSON.stringify(response) }],
+              };
+              break;
+            }
+            case "slack_get_thread_replies": {
+              const args = callToolRequest.params.arguments as any;
+              if (!args.channel_id || !args.thread_ts) {
+                throw new Error(
+                  "Missing required arguments: channel_id and thread_ts"
+                );
+              }
+              const response = await slackClient.getThreadReplies(
+                args.channel_id,
+                args.thread_ts
+              );
+              result = {
+                content: [{ type: "text", text: JSON.stringify(response) }],
+              };
+              break;
+            }
+            case "slack_get_users": {
+              const args = callToolRequest.params.arguments as any;
+              const response = await slackClient.getUsers(
+                args.limit,
+                args.cursor
+              );
+              result = {
+                content: [{ type: "text", text: JSON.stringify(response) }],
+              };
+              break;
+            }
+            case "slack_get_user_profile": {
+              const args = callToolRequest.params.arguments as any;
+              if (!args.user_id) {
+                throw new Error("Missing required argument: user_id");
+              }
+              const response = await slackClient.getUserProfile(args.user_id);
+              result = {
+                content: [{ type: "text", text: JSON.stringify(response) }],
+              };
+              break;
+            }
+            default:
+              throw new Error(`Unknown tool: ${callToolRequest.params.name}`);
+          }
+          
           return new Response(JSON.stringify(result), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (error) {
+          return new Response(JSON.stringify({
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            }],
+          }), {
             headers: { 'Content-Type': 'application/json' }
           });
         }
       } else if (requestBody.type === 'list_tools') {
-        // Process the list_tools request manually
-        const handler = server.getRequestHandler(ListToolsRequestSchema);
-        if (handler) {
-          const result = await handler(requestBody);
-          return new Response(JSON.stringify(result), {
-            headers: { 'Content-Type': 'application/json' }
-          });
-        }
+        // Return the list of tools directly
+        const toolsList = {
+          tools: [
+            listChannelsTool,
+            postMessageTool,
+            replyToThreadTool,
+            addReactionTool,
+            getChannelHistoryTool,
+            getThreadRepliesTool,
+            getUsersTool,
+            getUserProfileTool,
+          ],
+        };
+        
+        return new Response(JSON.stringify(toolsList), {
+          headers: { 'Content-Type': 'application/json' }
+        });
       }
       
       // If we get here, either the request type is unsupported or we couldn't find a handler
