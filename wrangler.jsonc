@@ -1,5 +1,5 @@
 {
-  "name": "slack-mcp-server",
+  "name": "slack-mcp-remote",
   "compatibility_date": "2025-05-20",
   "main": "./src/worker.ts",
   "env": {
