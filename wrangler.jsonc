@@ -1,0 +1,9 @@
+{
+  "name": "slack-mcp-server",
+  "compatibility_date": "2025-05-20",
+  "main": "./src/worker.ts",
+  "env": {
+    "SLACK_BOT_TOKEN": "",
+    "SLACK_TEAM_ID": ""
+  }
+}
