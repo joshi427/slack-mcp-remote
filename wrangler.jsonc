@@ -1,0 +1,17 @@
+{
+  "name": "slack-mcp-remote",
+  "compatibility_date": "2025-05-20",
+  "main": "./src/worker.ts",
+  "vars": {
+    "SLACK_CHANNEL_IDS": "C07UXGW4QSU",
+    "SLACK_TEAM_ID": "T07V0HM8KKJ"
+  },
+  "secret_vars": [
+    "SLACK_BOT_TOKEN"
+  ],
+  "observability": {
+    "logs": {
+      "enabled": false
+    }
+  }
+}
